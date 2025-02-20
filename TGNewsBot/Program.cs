@@ -39,7 +39,7 @@ class Program
         var configuration = host.Services.GetRequiredService<IConfiguration>();
 
         botToken = "TELEGRAM_API_KEY";
-        chatID = Convert.ToInt64("CHAT_ID");
+        chatID = 723491344;
         newsApiKey = "NEWS_API_KEY";
         weatherApiKey = "WEATHER_API_KEY";
         quotesApiUrl = "https://zenquotes.io/api/random";
