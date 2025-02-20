@@ -38,10 +38,10 @@ class Program
         var host = CreateHostBuilder().Build();
         var configuration = host.Services.GetRequiredService<IConfiguration>();
 
-        botToken = configuration["TelegramBot:Token"];
-        chatID = Convert.ToInt64(configuration["TelegramBot:ChatID"]);
-        newsApiKey = configuration["NewsApi:ApiKey"];
-        weatherApiKey = configuration["WeatherApi:ApiKey"];
+        botToken = "TELEGRAM_API_KEY";
+        chatID = Convert.ToInt64("CHAT_ID");
+        newsApiKey = "NEWS_API_KEY";
+        weatherApiKey = "WEATHER_API_KEY";
         quotesApiUrl = "https://zenquotes.io/api/random";
         weatherApiUrl = "https://api.openweathermap.org/data/2.5/weather?q={0}&units=metric&appid=" + weatherApiKey;
 
