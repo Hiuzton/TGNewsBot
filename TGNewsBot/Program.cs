@@ -38,10 +38,10 @@ class Program
         var host = CreateHostBuilder().Build();
         var configuration = host.Services.GetRequiredService<IConfiguration>();
 
-        botToken = "TELEGRAM_API_KEY";
+        botToken = Environment.GetEnvironmentVariable("TELEGRAM_API_KEY");
         chatID = 723491344;
-        newsApiKey = "NEWS_API_KEY";
-        weatherApiKey = "WEATHER_API_KEY";
+        newsApiKey = Environment.GetEnvironmentVariable("NEWS_API_KEY");
+        weatherApiKey = Environment.GetEnvironmentVariable("WEATHER_API_KEY");
         quotesApiUrl = "https://zenquotes.io/api/random";
         weatherApiUrl = "https://api.openweathermap.org/data/2.5/weather?q={0}&units=metric&appid=" + weatherApiKey;
 
