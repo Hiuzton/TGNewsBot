@@ -9,16 +9,19 @@ using Telegram.Bot.Types.ReplyMarkups;
 using Quartz;
 using Quartz.Impl;
 using TGNewsBot.Models;
+using static System.Net.WebRequestMethods;
 
 class Program
 {
     private static string botToken;
     private static string newsApiKey;
+    private static string weatherApiKey;
     private static string quotesApiUrl;
+    private static string weatherApiUrl;
     private static TelegramBotClient botClient;
     private static long chatID;
-    private static readonly int hour = 21;
-    private static readonly int minutes = 38;
+    private static readonly int hour = 9;
+    private static readonly int minutes = 00;
     private static List<News> newsList = new List<News>();
     private static readonly Dictionary<string, string> countries = new()
     {
@@ -38,7 +41,9 @@ class Program
         botToken = configuration["TelegramBot:Token"];
         chatID = Convert.ToInt64(configuration["TelegramBot:ChatID"]);
         newsApiKey = configuration["NewsApi:ApiKey"];
-        quotesApiUrl = configuration["QuotesApi:Url"];
+        weatherApiKey = configuration["WeatherApi:ApiKey"];
+        quotesApiUrl = "https://zenquotes.io/api/random";
+        weatherApiUrl = "https://api.openweathermap.org/data/2.5/weather?q={0}&units=metric&appid=" + weatherApiKey;
 
         botClient = new TelegramBotClient(botToken);
         botClient.StartReceiving(HandleUpdateAsync, HandleErrorAsync);
@@ -66,15 +71,9 @@ class Program
     {
         public async Task Execute(IJobExecutionContext context)
         {
-            // Ensure that the news has been fetched before sending
-            if (newsList.Count == 0)
-            {
-                Console.WriteLine("No news available. Skipping the job.");
-                return;
-            }
-
             Console.WriteLine("Job executed at: " + DateTime.Now);
-            await SendNewsList(chatID, 7);
+            await SendMorningMessage(botClient, chatID);
+            await SendMessageWithCountriesToChoose(botClient, chatID);
         }
     }
 
@@ -173,45 +172,49 @@ class Program
             parseMode: ParseMode.Markdown
         );
     }
+
     private static async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken cancellationToken)
     {
         if (update.Message != null)
+            await OnMessageSent(bot, update);
+
+        if (update.CallbackQuery != null)
+            await OnQoueryCallback(update);
+    }
+
+    private static async Task OnMessageSent(ITelegramBotClient bot, Update update)
+    {
+        long chatId = update.Message.Chat.Id;
+
+        if (update.Message.Text == "/start")
         {
-            long chatId = update.Message.Chat.Id;
-
-            if (update.Message.Text == "/start" || update.Message.Text == "🆕 Start")
+            var keyboard = new ReplyKeyboardMarkup(new[]
             {
-                var keyboard = new ReplyKeyboardMarkup(new[]
-                {
-                    new KeyboardButton[] { "🆕 Start" }, 
-                    new KeyboardButton[] { "News" } // Button appears under the input
+                    new KeyboardButton[] { "📰 News", "⛅ Weather" }
                 })
-                {
-                    ResizeKeyboard = true, // Makes it compact
-                    OneTimeKeyboard = false // Keeps it visible
-                };
+            {
+                ResizeKeyboard = true,
+                OneTimeKeyboard = false
+            };
 
-
-                await bot.SendTextMessageAsync(
-                    chatId,
-                    "Welcome! Click the button below to get started:",
-                    replyMarkup: keyboard
-                );
-                var inlineKeyboard = new List<List<InlineKeyboardButton>>();
-
-                foreach (var country in countries.Keys)
-                {
-                    inlineKeyboard.Add(new List<InlineKeyboardButton>
-                {
-                    InlineKeyboardButton.WithCallbackData(country, $"country_{country}")
-                });
-                }
-
-                var replyMarkup = new InlineKeyboardMarkup(inlineKeyboard);
-                await bot.SendTextMessageAsync(chatId, "Please choose a country to get news from:", replyMarkup: replyMarkup);
-            }
+            await bot.SendTextMessageAsync(
+                chatId,
+                "Welcome to Morning Bastard!\nThis bot provides morning updates with news and weather.",
+                replyMarkup: keyboard
+            );
         }
+        else if (update.Message.Text == "📰 News")
+        {
+            await SendMessageWithCountriesToChoose(bot, chatId);
+        }
+        else if (update.Message.Text == "⛅ Weather")
+        {
+            await bot.SendTextMessageAsync(chatId, await GetWeather("Sibiu"));
+        }
+    }
 
+    private static async Task OnQoueryCallback(Update update)
+    {
         if (update.CallbackQuery != null)
         {
             string data = update.CallbackQuery.Data;
@@ -238,6 +241,82 @@ class Program
                 await SendNewsList(chatId, offset);
             }
         }
+    }
+
+    private static async Task SendMorningMessage(ITelegramBotClient bot, long chatId)
+    {
+        string quote = await GetMotivationalQuote();
+        string weather = await GetWeather("sibiu");
+        string messageToSent = $"Morning dude.\nHope you are fine today.\n" +
+            $"For your good being: {quote}\n" +
+            $"Weather for today {weather}\n" +
+            $"For the latest news choose the country below:";
+
+        await bot.SendTextMessageAsync(chatId, messageToSent);
+    }
+
+    private static async Task<string> GetMotivationalQuote()
+    {
+        using HttpClient client = new();
+        HttpResponseMessage response = await client.GetAsync(quotesApiUrl);
+        string responseContent = await response.Content.ReadAsStringAsync();
+
+        JsonDocument doc = JsonDocument.Parse(responseContent);
+
+        JsonElement quoteElement = doc.RootElement[0];
+
+        string quote = quoteElement.GetProperty("q").GetString();
+        string author = quoteElement.GetProperty("a").GetString();
+
+        return $"\"{quote}\" — {author}";
+    }
+    private static async Task<string> GetWeather(string city)
+    {
+        string url = string.Format(weatherApiUrl, city);
+        using HttpClient client = new();
+
+        HttpResponseMessage response = await client.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"Failed to fetch weather. Status Code: {response.StatusCode}");
+            return "";
+        }
+
+        string content = await response.Content.ReadAsStringAsync();
+        JsonDocument doc = JsonDocument.Parse(content);
+
+        var weather = doc.RootElement.GetProperty("weather")[0].GetProperty("description").GetString();
+        var temp = doc.RootElement.GetProperty("main").GetProperty("temp").GetDouble();
+        var tempMin = doc.RootElement.GetProperty("main").GetProperty("temp_min").GetDouble();
+        var tempMax = doc.RootElement.GetProperty("main").GetProperty("temp_max").GetDouble();
+        var humidity = doc.RootElement.GetProperty("main").GetProperty("humidity").GetInt32();
+        var windSpeed = doc.RootElement.GetProperty("wind").GetProperty("speed").GetDouble();
+
+        string message = $"🌦️ Weather in {city}:\n" +
+                         $"🌡️ *Temperature:* {temp}°C\n" +
+                         $"🔽 *Min Temp:* {tempMin}°C\n" +
+                         $"🔼 *Max Temp:* {tempMax}°C\n" +
+                         $"💨 *Wind Speed:* {windSpeed} m/s\n" +
+                         $"💧 *Humidity:* {humidity}%\n" +
+                         $"📌 *Condition:* {weather}";
+
+        return message;
+    }
+
+    private static async Task SendMessageWithCountriesToChoose(ITelegramBotClient bot, long chatId)
+    {
+        var inlineKeyboard = new List<List<InlineKeyboardButton>>();
+
+        foreach (var country in countries.Keys)
+        {
+            inlineKeyboard.Add(new List<InlineKeyboardButton>
+                {
+                    InlineKeyboardButton.WithCallbackData(country, $"country_{country}")
+                });
+        }
+
+        var replyMarkup = new InlineKeyboardMarkup(inlineKeyboard);
+        await bot.SendTextMessageAsync(chatId,"Choose the country", replyMarkup: replyMarkup);
     }
 
     private static Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken token)
